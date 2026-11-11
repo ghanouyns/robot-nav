@@ -28,7 +28,7 @@ DEPART_DEFAUT = (0, 0)
 ARRIVEE_DEFAUT = (19, 19)
 
 # ==================== Fenêtre ====================
-TITRE_FENETRE = "Navigation du robot - Algorithme A*"
+TITRE_FENETRE = "Navigation du robot - Algorithme BFS"
 LARGEUR_PANNEAU = 250
 
 # ==================== Niveau 2 : Obstacles dynamiques ====================
