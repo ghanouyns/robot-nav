@@ -1,7 +1,10 @@
 
+import random
 import config
 
+
 class Grille:
+
     def __init__(self, lignes=config.NB_LIGNES, colonnes=config.NB_COLONNES):
         self.lignes = lignes
         self.colonnes = colonnes
@@ -26,14 +29,31 @@ class Grille:
     def retirer_obstacle(self, case):
         self.obstacles.discard(case)
 
+    # Générer des obstacles aléatoires
+    def generer_obstacles_aleatoires(self):
+
+        # Supprimer les anciens obstacles
+        self.obstacles.clear()
+
+        for ligne in range(self.lignes):
+            for colonne in range(self.colonnes):
+
+                case = (ligne, colonne)
+
+                # Ne jamais bloquer le départ et l'arrivée
+                if case != self.depart and case != self.arrivee:
+
+                    if random.random() < config.PROBA_OBSTACLE_ALEATOIRE:
+                        self.ajouter_obstacle(case)
+
     def voisins(self, case):
         ligne, colonne = case
 
         directions = [
-            (-1, 0),  
-            (1, 0),   
-            (0, -1),  
-            (0, 1)    
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1)
         ]
 
         resultat = []

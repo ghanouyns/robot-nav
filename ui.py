@@ -1,207 +1,412 @@
-# ui.py - Interface graphique finale avec placement manuel du Départ et de l'Arrivée
 
 import tkinter as tk
-import random
 import config
+
 from grid import Grille
 from search import bfs
 
-class RobotNavApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title(config.TITRE_FENETRE)
 
-        # Initialisation de la grille standard
-        self.grille = Grille(config.NB_LIGNES, config.NB_COLONNES)
+class Application:
 
-        # Variables d'état
-        self.chemin = []
+    def __init__(self):
+
+        # ==============================
+        # 1. Créer la grille
+        # ==============================
+
+        self.grille = Grille()
+
+        # Variables pour stocker le chemin et les mesures
+        self.chemin = None
         self.nb_explores = 0
-        self.simulation_active = False
+        self.longueur_chemin = 0
+
+        # ==============================
+        # 2. Créer la fenêtre
+        # ==============================
+
+        self.fenetre = tk.Tk()
+        self.fenetre.title(config.TITRE_FENETRE)
+
+        # ==============================
+        # 3. Créer le Canvas
+        # ==============================
+
+        largeur = (
+            config.NB_COLONNES * config.TAILLE_CASE
+            + 2 * config.MARGE
+        )
+
+        hauteur = (
+            config.NB_LIGNES * config.TAILLE_CASE
+            + 2 * config.MARGE
+        )
+
+        self.canvas = tk.Canvas(
+            self.fenetre,
+            width=largeur,
+            height=hauteur,
+            bg=config.COULEUR_FOND
+        )
+
+        self.canvas.pack(side=tk.LEFT, padx=10, pady=10)
+
+        # ==============================
+        # 4. Créer le panneau de boutons
+        # ==============================
+
+        self.panneau = tk.Frame(
+            self.fenetre,
+            width=config.LARGEUR_PANNEAU
+        )
+
+        self.panneau.pack(
+            side=tk.RIGHT,
+            fill=tk.Y,
+            padx=10,
+            pady=10
+        )
+
+        # Empêcher le panneau de changer automatiquement de largeur
+        self.panneau.pack_propagate(False)
+
+        # Bouton Lancer
+        bouton_lancer = tk.Button(
+            self.panneau,
+            text="Lancer",
+            command=self.lancer
+        )
+
+        bouton_lancer.pack(fill=tk.X, pady=5)
+
+        # Bouton Réinitialiser
+        bouton_reset = tk.Button(
+            self.panneau,
+            text="Réinitialiser",
+            command=self.reinitialiser
+        )
+
+        bouton_reset.pack(fill=tk.X, pady=5)
         
-        # Mode de placement au clic : "depart", "arrivee", ou "obstacle"
-        self.mode_placement = "obstacle"
+        # Bouton Générer des obstacles
+        bouton_aleatoire = tk.Button(
+            self.panneau,
+            text="Générer obstacles",
+            command=self.generer_obstacles
+        )
 
-        # Création des éléments de l'interface
-        self.create_widgets()
-        self.dessiner_grille()
+        bouton_aleatoire.pack(fill=tk.X, pady=5)
 
-    def create_widgets(self):
-        """Crée le panneau de contrôle et le Canvas."""
-        control_frame = tk.Frame(self.root, padx=10, pady=10)
-        control_frame.pack(side=tk.TOP, fill=tk.X)
+        # ==============================
+        # 5. Affichage des mesures
+        # ==============================
 
-        # --- Boutons d'actions principaux ---
-        btn_run = tk.Button(control_frame, text="Lancer BFS", command=self.executer_bfs, bg="#4CAF50", fg="white", font=("Arial", 9, "bold"))
-        btn_run.pack(side=tk.LEFT, padx=3)
+        self.label_explores = tk.Label(
+            self.panneau,
+            text="Cases explorées : 0"
+        )
 
-        # Bouton unique pour Activer ou Stopper le mode dynamique
-        self.btn_dynamique = tk.Button(control_frame, text="Activer Dynamique", command=self.basculer_dynamique, bg="#FF9800", fg="white", font=("Arial", 9, "bold"))
-        self.btn_dynamique.pack(side=tk.LEFT, padx=3)
+        self.label_explores.pack(pady=10)
 
-        # --- Boutons pour choisir quoi placer au clic ---
-        self.btn_mode_depart = tk.Button(control_frame, text="Placer Départ", command=lambda: self.changer_mode("depart"), bg="#2196F3", fg="white", font=("Arial", 9, "bold"))
-        self.btn_mode_depart.pack(side=tk.LEFT, padx=3)
+        self.label_longueur = tk.Label(
+            self.panneau,
+            text="Longueur du chemin : 0"
+        )
 
-        self.btn_mode_arrivee = tk.Button(control_frame, text="Placer Arrivée", command=lambda: self.changer_mode("arrivee"), bg="#9C27B0", fg="white", font=("Arial", 9, "bold"))
-        self.btn_mode_arrivee.pack(side=tk.LEFT, padx=3)
+        self.label_longueur.pack(pady=5)
 
-        btn_clear = tk.Button(control_frame, text="Effacer", command=self.reinitialiser_grille, bg="#f44336", fg="white", font=("Arial", 9, "bold"))
-        btn_clear.pack(side=tk.LEFT, padx=3)
+        self.label_resultat = tk.Label(
+            self.panneau,
+            text="En attente..."
+        )
 
-        # --- Label d'information ---
-        self.label_info = tk.Label(self.root, text="Mode actuel : Obstacles (Cliquez pour ajouter/retirer).", font=("Arial", 9))
-        self.label_info.pack(side=tk.TOP, pady=5)
+        self.label_resultat.pack(pady=10)
 
-        # --- Canvas pour la grille ---
-        canvas_width = self.grille.colonnes * config.TAILLE_CASE
-        canvas_height = self.grille.lignes * config.TAILLE_CASE
-        
-        self.canvas = tk.Canvas(self.root, width=canvas_width, height=canvas_height, bg=config.COULEUR_FOND)
-        self.canvas.pack(side=tk.BOTTOM, padx=10, pady=10)
+        # ==============================
+        # 6. Gérer les clics de souris
+        # ==============================
 
-        self.canvas.bind("<Button-1>", self.sur_clic_canvas)
+        self.canvas.bind(
+            "<Button-1>",
+            self.au_clic
+        )
 
-    def changer_mode(self, mode):
-        """Change ce que l'utilisateur va placer au prochain clic."""
-        self.mode_placement = mode
-        if mode == "depart":
-            self.label_info.config(text="📍 Cliquez sur la grille pour placer le nouveau Départ.")
-        elif mode == "arrivee":
-            self.label_info.config(text="🏁 Cliquez sur la grille pour placer la nouvelle Arrivée.")
+        # Premier dessin
+        self.dessiner()
 
-    def dessiner_grille(self):
-        """Dessine les cases de la grille."""
+    # ==========================================
+    # Convertir les pixels en coordonnées de case
+    # ==========================================
+
+    def case_depuis_pixels(self, x, y):
+
+        # Vérifier si le clic est dans la grille
+        if x < config.MARGE or y < config.MARGE:
+            return None
+
+        if x >= config.MARGE + self.grille.colonnes * config.TAILLE_CASE:
+            return None
+
+        if y >= config.MARGE + self.grille.lignes * config.TAILLE_CASE:
+            return None
+
+        # Convertir les pixels en ligne et colonne
+        colonne = (x - config.MARGE) // config.TAILLE_CASE
+        ligne = (y - config.MARGE) // config.TAILLE_CASE
+
+        return (ligne, colonne)
+
+    # ==========================================
+    # Gérer le clic de souris
+    # ==========================================
+
+    def au_clic(self, event):
+
+        case = self.case_depuis_pixels(event.x, event.y)
+
+        # Ignorer les clics hors de la grille
+        if case is None:
+            return
+
+        # Ne pas modifier le départ ou l'arrivée
+        if case == self.grille.depart or case == self.grille.arrivee:
+            return
+
+        # Si la case contient déjà un obstacle, le retirer
+        if case in self.grille.obstacles:
+            self.grille.retirer_obstacle(case)
+
+        # Sinon, ajouter un obstacle
+        else:
+            self.grille.ajouter_obstacle(case)
+
+        # Effacer l'ancien chemin
+        self.chemin = None
+        self.nb_explores = 0
+        self.longueur_chemin = 0
+
+        # Réinitialiser le message
+        self.label_resultat.config(
+            text="En attente..."
+        )
+
+        # Mettre à jour les mesures
+        self.mettre_a_jour_mesures()
+
+        # Redessiner la grille
+        self.dessiner()
+
+    # ==========================================
+    # Lancer l'algorithme BFS
+    # ==========================================
+
+    def lancer(self):
+
+        self.chemin, self.nb_explores = bfs(
+            self.grille,
+            self.grille.depart,
+            self.grille.arrivee
+        )
+
+        # Calculer la longueur du chemin
+        if self.chemin is not None:
+
+            self.longueur_chemin = len(self.chemin) - 1
+
+            self.label_resultat.config(
+                text="Chemin trouvé !"
+            )
+
+        else:
+
+            self.longueur_chemin = 0
+
+            self.label_resultat.config(
+                text="Aucun chemin trouvé !"
+            )
+
+        # Actualiser les mesures
+        self.mettre_a_jour_mesures()
+
+        # Dessiner le chemin
+        self.dessiner()
+
+    # ==========================================
+    # Réinitialiser la grille
+    # ==========================================
+
+    def reinitialiser(self):
+
+        # Supprimer tous les obstacles
+        self.grille.obstacles.clear()
+
+        # Supprimer le chemin
+        self.chemin = None
+
+        # Réinitialiser les mesures
+        self.nb_explores = 0
+        self.longueur_chemin = 0
+
+        self.label_resultat.config(
+            text="En attente..."
+        )
+
+        self.mettre_a_jour_mesures()
+
+        self.dessiner()
+
+    # ==========================================
+    # Actualiser les mesures
+    # ==========================================
+
+    def mettre_a_jour_mesures(self):
+
+        self.label_explores.config(
+            text=f"Cases explorées : {self.nb_explores}"
+        )
+
+        self.label_longueur.config(
+            text=f"Longueur du chemin : {self.longueur_chemin}"
+        )
+
+    # ==========================================
+    # Dessiner un point (départ ou arrivée)
+    # ==========================================
+
+    def dessiner_point(self, case, couleur):
+
+        ligne, colonne = case
+
+        x1 = config.MARGE + colonne * config.TAILLE_CASE
+        y1 = config.MARGE + ligne * config.TAILLE_CASE
+
+        x2 = x1 + config.TAILLE_CASE
+        y2 = y1 + config.TAILLE_CASE
+
+        self.canvas.create_oval(
+            x1 + 5,
+            y1 + 5,
+            x2 - 5,
+            y2 - 5,
+            fill=couleur,
+            outline=couleur
+        )
+
+    # ==========================================
+    # Dessiner toute la grille
+    # ==========================================
+
+    def dessiner(self):
+
+        # Effacer tout le Canvas
         self.canvas.delete("all")
 
-        for r in range(self.grille.lignes):
-            for c in range(self.grille.colonnes):
-                x1 = c * config.TAILLE_CASE
-                y1 = r * config.TAILLE_CASE
+        # Dessiner les cases
+        for ligne in range(self.grille.lignes):
+
+            for colonne in range(self.grille.colonnes):
+
+                x1 = config.MARGE + colonne * config.TAILLE_CASE
+                y1 = config.MARGE + ligne * config.TAILLE_CASE
+
                 x2 = x1 + config.TAILLE_CASE
                 y2 = y1 + config.TAILLE_CASE
 
-                pos = (r, c)
-                couleur = config.COULEUR_FOND
+                self.canvas.create_rectangle(
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    outline=config.COULEUR_LIGNES
+                )
 
-                if pos == self.grille.depart:
-                    couleur = config.COULEUR_ROBOT
-                elif pos == self.grille.arrivee:
-                    couleur = config.COULEUR_ARRIVEE
-                elif self.chemin and pos in self.chemin:
-                    couleur = config.COULEUR_CHEMIN
-                elif pos in self.grille.obstacles:
-                    couleur = config.COULEUR_OBSTACLE
+        # Dessiner les obstacles
+        for ligne, colonne in self.grille.obstacles:
 
-                self.canvas.create_rectangle(x1, y1, x2, y2, fill=couleur, outline=config.COULEUR_LIGNES)
+            x1 = config.MARGE + colonne * config.TAILLE_CASE
+            y1 = config.MARGE + ligne * config.TAILLE_CASE
 
-    def sur_clic_canvas(self, event):
-        """Gère les actions au clic selon le mode choisi (Départ, Arrivée ou Obstacle)."""
-        c = event.x // config.TAILLE_CASE
-        r = event.y // config.TAILLE_CASE
-        position = (r, c)
+            x2 = x1 + config.TAILLE_CASE
+            y2 = y1 + config.TAILLE_CASE
 
-        # 1. Placement du Départ
-        if self.mode_placement == "depart":
-            if position != self.grille.arrivee and position not in self.grille.obstacles:
-                self.grille.depart = position
-                self.mode_placement = "obstacle"  # On revient au mode obstacle par défaut
-                self.label_info.config(text="Départ placé avec succès !")
-                self.chemin = []
-            else:
-                self.label_info.config(text="⚠️ Position invalide pour le départ !", fg="red")
+            self.canvas.create_rectangle(
+                x1,
+                y1,
+                x2,
+                y2,
+                fill=config.COULEUR_OBSTACLE,
+                outline=config.COULEUR_OBSTACLE
+            )
 
-        # 2. Placement de l'Arrivée
-        elif self.mode_placement == "arrivee":
-            if position != self.grille.depart and position not in self.grille.obstacles:
-                self.grille.arrivee = position
-                self.mode_placement = "obstacle"  # On revient au mode obstacle par défaut
-                self.label_info.config(text="Arrivée placée avec succès !")
-                self.chemin = []
-            else:
-                self.label_info.config(text="⚠️ Position invalide pour l'arrivée !", fg="red")
+        # Dessiner le chemin
+        if self.chemin is not None and len(self.chemin) > 1:
 
-        # 3. Gestion classique des obstacles
-        else:
-            if position == self.grille.depart or position == self.grille.arrivee:
-                return
+            points = []
 
-            if position in self.grille.obstacles:
-                self.grille.retirer_obstacle(position)
-            else:
-                self.grille.ajouter_obstacle(position)
-            
-            self.chemin = []
-            self.label_info.config(text="Cliquez sur la grille pour ajouter des obstacles ou activez le mode dynamique.", fg="black")
+            for ligne, colonne in self.chemin:
 
-        self.dessiner_grille()
+                x = (
+                    config.MARGE
+                    + colonne * config.TAILLE_CASE
+                    + config.TAILLE_CASE // 2
+                )
 
-    def basculer_dynamique(self):
-        """Bascule entre l'activation et l'arrêt des obstacles dynamiques."""
-        if not self.simulation_active:
-            self.simulation_active = True
-            self.btn_dynamique.config(text="Stopper Dynamique", bg="#D32F2F")
-            self.label_info.config(text="Obstacles dynamiques activés !")
-            self.mettre_a_jour_obstacles_dynamiques()
-        else:
-            self.simulation_active = False
-            self.btn_dynamique.config(text="Activer Dynamique", bg="#FF9800")
-            self.label_info.config(text="Obstacles dynamiques stoppés.", fg="black")
+                y = (
+                    config.MARGE
+                    + ligne * config.TAILLE_CASE
+                    + config.TAILLE_CASE // 2
+                )
 
-    def mettre_a_jour_obstacles_dynamiques(self):
-        """Modifie aléatoirement les obstacles et recalcule le BFS en boucle."""
-        if not self.simulation_active:
-            return
+                points.extend([x, y])
 
-        for r in range(self.grille.lignes):
-            for c in range(self.grille.colonnes):
-                pos = (r, c)
-                if pos == self.grille.depart or pos == self.grille.arrivee:
-                    continue
-                
-                if random.random() < config.PROBA_OBSTACLE:
-                    if pos in self.grille.obstacles:
-                        self.grille.retirer_obstacle(pos)
-                    else:
-                        self.grille.ajouter_obstacle(pos)
+            self.canvas.create_line(
+                *points,
+                fill=config.COULEUR_CHEMIN,
+                width=config.EPAISSEUR_CHEMIN
+            )
 
-        nouveau_chemin, self.nb_explores = bfs(self.grille, self.grille.depart, self.grille.arrivee)
-        
-        if nouveau_chemin is not None:
-            self.chemin = nouveau_chemin
-            self.label_info.config(text=f"Chemin trouvé (Longueur: {len(self.chemin)}) | Explorés: {self.nb_explores}", fg="black")
-            self.dessiner_grille()
-            self.root.after(config.INTERVALLE_OBSTACLES_MS, self.mettre_a_jour_obstacles_dynamiques)
-        else:
-            self.chemin = []
-            self.label_info.config(text="⚠️ Aucun chemin trouvé ! Simulation stoppée car bloqué.", fg="red")
-            self.dessiner_grille()
-            self.simulation_active = False
-            self.btn_dynamique.config(text="Activer Dynamique", bg="#FF9800")
+        # Dessiner le départ
+        self.dessiner_point(
+            self.grille.depart,
+            config.COULEUR_ROBOT
+        )
 
-    def executer_bfs(self):
-        """Lance le BFS manuellement."""
-        resultat_chemin, self.nb_explores = bfs(self.grille, self.grille.depart, self.grille.arrivee)
-        if resultat_chemin is None:
-            self.chemin = []
-            self.label_info.config(text=f"⚠️ Aucun chemin trouvé ! Explorés : {self.nb_explores}", fg="red")
-        else:
-            self.chemin = resultat_chemin
-            self.label_info.config(text=f"Chemin trouvé ! Explorés : {self.nb_explores} | Longueur : {len(self.chemin)}", fg="black")
-        self.dessiner_grille()
+        # Dessiner l'arrivée
+        self.dessiner_point(
+            self.grille.arrivee,
+            config.COULEUR_ARRIVEE
+        )
+    # ==========================================
+    # Générer des obstacles aléatoires
+    # ==========================================
 
-    def reinitialiser_grille(self):
-        """Réinitialise la grille et stoppe la simulation."""
-        self.simulation_active = False
-        self.btn_dynamique.config(text="Activer Dynamique", bg="#FF9800")
-        self.grille.obstacles.clear()
-        self.chemin = []
-        self.mode_placement = "obstacle"
-        self.label_info.config(text="Grille réinitialisée.", fg="black")
-        self.dessiner_grille()
+    def generer_obstacles(self):
 
+        # Générer les obstacles dans la grille
+        self.grille.generer_obstacles_aleatoires()
 
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = RobotNavApp(root)
-    root.mainloop()
+        # Supprimer l'ancien chemin
+        self.chemin = None
+
+        # Réinitialiser les mesures
+        self.nb_explores = 0
+        self.longueur_chemin = 0
+
+        # Réinitialiser le message
+        self.label_resultat.config(
+            text="Obstacles générés !"
+        )
+
+        # Actualiser les mesures
+        self.mettre_a_jour_mesures()
+
+        # Redessiner la grille
+        self.dessiner()
+
+    # ==========================================
+    # Lancer l'interface
+    # ==========================================
+
+    def lancer_interface(self):
+
+        self.fenetre.mainloop()
